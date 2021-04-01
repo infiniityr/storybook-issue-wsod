@@ -1,0 +1,114 @@
+image: node:14.15.4
+
+stages:
+  - install
+  - build
+  - test
+  - version
+  - deploy
+
+before_script:
+  - |
+    {
+      echo "@${CI_PROJECT_ROOT_NAMESPACE}:registry=${CI_API_V4_URL}/packages/npm/"
+      echo "${CI_API_V4_URL#https?}/packages/npm/:_authToken=\${CI_JOB_TOKEN}"
+    } | tee --append .npmrc
+
+install_dependencies:
+  stage: install
+  script:
+    - npm install
+  cache:
+    key: "$CI_COMMIT_REF_SLUG"
+    paths:
+      - node_modules/
+  artifacts:
+    untracked: true
+    paths:
+      - node_modules/
+  only:
+    - branches
+
+build:
+  image: node:14.15.4
+  stage: build
+  script:
+    - npm run release
+  artifacts:
+    paths:
+      - release
+    expire_in: 1 hour
+  only:
+    - branches
+
+lint:
+  image: node:14.15.4
+  stage: test
+  script:
+    - npm run lint
+  only:
+    - branches
+
+unit:
+  image: node:14.15.4
+  stage: test
+  script:
+    - npm run test:unit
+  only:
+    - branches
+
+# Prerelease upgrade version for every merge request on sprint branch
+upgrade_version_prerelease:
+  image: node:14.15.4
+  stage: version
+  before_script:
+    - git clone https://"oauth2:${GITLAB_ACCESS_TOKEN}"@gitlab-hds.silpc.net/${CI_PROJECT_PATH}
+    - cd ${CI_PROJECT_NAME}
+    - git config user.email "${GITLAB_USER_EMAIL}"
+    - git config user.name "${GITLAB_USER_NAME}"
+  script:
+    - git checkout ${CI_COMMIT_REF_NAME}
+    - VERSION=$(npm version prerelease -m 'Pre-release %s')
+    - git status
+    - git push origin ${CI_COMMIT_REF_NAME} --tags
+  only:
+    refs:
+      - branches
+    variables:
+      - $CI_COMMIT_TITLE =~ /^Merge branch .*into 'sprint[0-9]+'$/ && $CI_COMMIT_BRANCH =~ /^sprint[0-9]+/
+
+# Patch upgrade version for every merge request on master branch
+upgrade_version_patch:
+  stage: version
+  before_script:
+    - git clone https://"oauth2:${GITLAB_ACCESS_TOKEN}"@gitlab-hds.silpc.net/${CI_PROJECT_PATH}
+    - cd ${CI_PROJECT_NAME}
+    - git config user.email "${GITLAB_USER_EMAIL}"
+    - git config user.name "${GITLAB_USER_NAME}"
+  script:
+    - git checkout ${CI_COMMIT_REF_NAME}
+    - VERSION=$(npm version patch -m 'Release %s')
+    - git status
+    - git push origin master --tags
+  only:
+    refs:
+      - branches
+    variables:
+      - $CI_COMMIT_TITLE =~ /^Merge branch .*into 'master'$/  && $CI_COMMIT_BRANCH =~ /^master/
+
+deploy_package:
+  image: node:14.15.4
+  stage: deploy
+  before_script:
+    - |
+      {
+        echo "@${CI_PROJECT_ROOT_NAMESPACE}:registry=${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/npm/"
+        echo "${CI_API_V4_URL#https?}/projects/${CI_PROJECT_ID}/packages/npm/:_authToken=\${CI_JOB_TOKEN}"
+      } | tee --append .npmrc
+  script:
+    - npm publish
+  only:
+    refs:
+      - master
+    variables:
+      - $CI_COMMIT_TITLE =~ /^Release .*/
