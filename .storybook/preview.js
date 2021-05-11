@@ -68,14 +68,6 @@ export const decorators = [
           default: context.args.dark,
         },
       },
-      watch: {
-        dark: {
-          immediate: true,
-          handler (val) {
-            this.$vuetify.theme.dark = val
-          }
-        },
-      },
       template: `
         <v-app>
           <v-container fluid>
